@@ -14,11 +14,15 @@ hold off
 
 % read image
 % imread(FullPathToTheImageFile);
+clear
 img = imread('M2_CD163_CTOG_MC_10x_3s_array_1-2 - Kopie.jpg');
+subplot(2,1,1)
 imshow(img);
-
+crp = [750 1000 0 250]; 
+line(crp([3 3 4 4 3]), crp([1 2 2 1 1]));
 % crop image
-c = img(751:1000,1:250,:);
+c = img(crp(1)+1:crp(2),crp(3)+1:crp(4),:);
+subplot(2,1,2)
 imshow(c);
 
 %% Red, green, blue

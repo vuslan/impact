@@ -1,11 +1,14 @@
-function [numBlobs, Centroid] = macroCount(filename, rect, channel)
+function [numBlobs, Centroid] = macroCount(filename, varargin)
 % Using Function:
-% filename = image file name
-% rect : (optional) rect = [Row Column Height Width]; default all image
-% channel : (optional) rect = [Row Column Height Width]; default green
+% macroCount(filename, property value pair);
+% Properties : 
+% channel : r,g,b default blue
+% rect : [Row Column Height Width], default all image.
+% scale : 0.01 - 1, default 0.7
 % Examples:
-% macroCount('Project001_Series005_z0.TIF')
-% macroCount('M2_CD163_CTOG_MC_10x_3s_array_1-2 - Kopie.jpg',[1 751 250 250])
+% macroCount('Project001_Series005_z0.TIF', 'scale', 0.8)
+% macroCount('M2_CD163_CTOG_MC_10x_3s_array_1-2 - Kopie.jpg','rect',[1 751 250 250])
+% macroCount('M2_CD163_CTOG_MC_10x_3s_array_1-2 - Kopie.jpg','rect',[1 751 250 250],'channel','g')
 % numBlobs = macroCount(...);
 % [numBlobs, Centroid] = macroCount(...);
 % returns number of blobs and centroids.
@@ -17,25 +20,27 @@ function [numBlobs, Centroid] = macroCount(filename, rect, channel)
 % filename = 'M2_CD163_CTOG_MC_10x_3s_array_1-2 - Kopie.jpg';
 % filename = 'Project001_Series005_z0.TIF';
 
-if nargin < 3
-    channel = 3;
-    if nargin < 2
-        if nargin < 1
-            error('filename required!');
-        end
-        rect = [];
-    end
-end
+
+p = inputParser;
+validRect = @(x) isnumeric(x) && numel(x) == 4;
+validChannel = @(x) (ischar(x) || isnumeric(x));
+validScale = @(x) isnumeric(x) && isscalar(x) && (x > 0);
+
+addOptional(p,'channel', 'b', validChannel);
+addOptional(p,'rect',[],validRect);
+addParameter(p,'scale',0.7,validScale);
+parse(p,filename,varargin{:});
+
 orig = imread(filename);
-if isempty(rect)
+if isempty(p.Results.rect)
     origCrop = orig;
 else
-    origCrop = imcrop(orig, rect);
+    origCrop = imcrop(orig, p.Results.rect);
 end
 cropRed = medfilt2(double(origCrop(:,:,1))/255);
 cropGreen = medfilt2(double(origCrop(:,:,2))/255);
 cropBlue = medfilt2(double(origCrop(:,:,3))/255);
-switch(channel)
+switch(p.Results.channel)
     case {1,'r'}
         cropAnalysis = cropRed;
         chanName = 'origRed';
@@ -67,8 +72,7 @@ y1(y1>1) = 1;
 y2 = imdilate(y1, strel('square',7)) - y1;
 
 th = multithresh(y2);      % Determine threshold using Otsu's method
-sc = 0.7;
-y3 = (y2 <= th*sc);           % Binarize the image.
+y3 = (y2 <= th*p.Results.scale);           % Binarize the image.
 Centroid = double(step(hblob, y3));   % Calculate the centroid
 numBlobs = size(Centroid,1);  % and number of cells.
 figure
@@ -84,4 +88,4 @@ y3 = insertMarker(double(y3), Centroid, '+', 'Color', 'green','size',2);
 subplot(2,2,1); imshow(image_out); title(replace(filename,'_','\_'));
 subplot(2,2,2); imshow(y1); title([chanName '-Enhanced']);
 subplot(2,2,3); imshow(y2); title([chanName '-Blob']);
-subplot(2,2,4); imshow(y3); title(sprintf([chanName '-Threshold:%f Scale:%f'], th, sc));
+subplot(2,2,4); imshow(y3); title(sprintf([chanName '-Threshold:%f Scale:%f'], th, p.Results.scale));

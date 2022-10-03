@@ -26,12 +26,13 @@ validRect = @(x) isnumeric(x) && numel(x) == 4;
 validChannel = @(x) (ischar(x) || isnumeric(x));
 validScale = @(x) isnumeric(x) && isscalar(x) && (x > 0);
 
-addOptional(p,'channel', 'b', validChannel);
-addOptional(p,'rect',[],validRect);
+addRequired(p,'filename', validChannel);
+addParameter(p,'channel', 'b', validChannel);
+addParameter(p,'rect',[],validRect);
 addParameter(p,'scale',0.7,validScale);
 parse(p,filename,varargin{:});
 
-orig = imread(filename);
+orig = imread(p.Results.filename);
 if isempty(p.Results.rect)
     origCrop = orig;
 else
@@ -78,14 +79,14 @@ numBlobs = size(Centroid,1);  % and number of cells.
 figure
 imshow(origCrop)
 text(Centroid(:,1),Centroid(:,2),num2str((1:size(Centroid,1))'),'Color', 'yellow')
-title([chanName '-' replace(filename,'_','\_')])
+title([chanName '-' replace(p.Results.filename,'_','\_')])
 figure
 % Display video
 image_out = insertMarker(cropAnalysis, Centroid, '+', 'Color', 'green');
 y2 = insertMarker(double(y2), Centroid, '+', 'Color', 'green','size',2);
 y3 = insertMarker(double(y3), Centroid, '+', 'Color', 'green','size',2);
 
-subplot(2,2,1); imshow(image_out); title(replace(filename,'_','\_'));
+subplot(2,2,1); imshow(image_out); title(replace(p.Results.filename,'_','\_'));
 subplot(2,2,2); imshow(y1); title([chanName '-Enhanced']);
 subplot(2,2,3); imshow(y2); title([chanName '-Blob']);
 subplot(2,2,4); imshow(y3); title(sprintf([chanName '-Threshold:%f Scale:%f'], th, p.Results.scale));

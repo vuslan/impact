@@ -4,7 +4,10 @@ function [numBlobs, Centroid] = macroCount(filename, varargin)
 % Properties : 
 % channel : r,g,b default blue
 % rect : [Row Column Height Width], default all image.
+% norm : The rect units are normalized, 0 : pixels, 1: normalized
 % scale : 0.01 - 1, default 0.7
+% pxmm : pixels per mm
+% area : Compute the number of cells for this area in mm^2
 % white : Removes white areas using this threhold and the channels not used for analysis, 0-255, default is 0 
 % Examples:
 % macroCount('Project001_Series005_z0.TIF', 'scale', 0.8)
@@ -32,6 +35,9 @@ addRequired(p,'filename', validChannel);      % Filename to be read
 addParameter(p,'channel', 'b', validChannel); % Choose channel
 addParameter(p,'rect',[],validRect);    % Apply to a specific rectangle
 addParameter(p,'scale',0.7,validScale); % Scales OTSU's threshold
+addParameter(p,'norm',0,validScale); % 1 if rect is in normalized units
+addParameter(p,'pxmm',0,validScale); % Pixels per mm
+addParameter(p,'area',0,validScale); % Area in mm^2
 addParameter(p,'white',0,validWhite);   % Removes white labels if any
 parse(p,filename,varargin{:});
 
@@ -39,7 +45,11 @@ orig = imread(p.Results.filename);
 if isempty(p.Results.rect)
     origCrop = orig;
 else
-    origCrop = imcrop(orig, p.Results.rect);
+    if p.Results.norm
+        origCrop = imcrop(orig, p.Results.rect.*repmat(size(orig,[2 1]),[1 2]));
+    else
+        origCrop = imcrop(orig, p.Results.rect);
+    end
 end
 cropRed = medfilt2(double(origCrop(:,:,1))/255);
 cropGreen = medfilt2(double(origCrop(:,:,2))/255);
@@ -68,9 +78,11 @@ if p.Results.white
 end
 % Create a BlobAnalysis System object to find the centroid of the segmented cells in the video.
 hblob = vision.BlobAnalysis( ...
-    'AreaOutputPort', false, ...
-    'BoundingBoxOutputPort', false, ...
-    'OutputDataType', 'single', ...
+    'AreaOutputPort', true, ...
+    'BoundingBoxOutputPort', true, ...
+    'CentroidOutputPort',true,...
+    'EccentricityOutputPort',true,...
+    'ExcludeBorderBlobs',true,...
     'MinimumBlobArea', 7, ...
     'MaximumBlobArea', 300, ...
     'MaximumCount', 1500);
@@ -88,19 +100,37 @@ y2 = imdilate(y1, strel('square',7)) - y1;
 
 th = multithresh(y2);               % Determine threshold using Otsu's method
 y3 = (y2 <= th*p.Results.scale);    % Binarize the image.
-Centroid = double(step(hblob, y3)); % Calculate the centroid
+[area,Centroid,bbox,ecc] = hblob(y3);
+area = double(area);
+% Centroid = double(step(hblob, y3)); % Calculate the centroid
 numBlobs = size(Centroid,1);        % and number of cells.
 figure
-imshow(origCrop)
+image_out = origCrop;
+image_out = insertShape(image_out,"rectangle",bbox,"Color","red");
+imshow(image_out)
 text(Centroid(:,1),Centroid(:,2),num2str((1:size(Centroid,1))'),'Color', 'yellow')
 title([chanName '-' replace(p.Results.filename,'_','\_')])
 figure
 % Display video
-image_out = insertMarker(cropAnalysis, Centroid, '+', 'Color', 'green');
+image_out = cropAnalysis;
+image_out = insertMarker(image_out, Centroid, '+', 'Color', 'green');
+
 y2 = insertMarker(double(y2), Centroid, '+', 'Color', 'green','size',2);
 y3 = insertMarker(double(y3), Centroid, '+', 'Color', 'green','size',2);
-
 subplot(2,2,1); imshow(image_out); title(replace(p.Results.filename,'_','\_'));
 subplot(2,2,2); imshow(y1); title([chanName '-Enhanced']);
 subplot(2,2,3); imshow(y2); title([chanName '-Blob']);
 subplot(2,2,4); imshow(y3); title(sprintf([chanName '-Threshold:%f Scale:%f'], th, p.Results.scale));
+fprintf(2,'# of cells %d\n',numBlobs);
+fprintf(2,'Ecc %f+-%f\n',mean(ecc),std(ecc));
+if p.Results.pxmm
+    fprintf(2,'Cell area %f+-%f um^2\n',mean(area)/(p.Results.pxmm^2)*1e6,std(area)/(p.Results.pxmm^2)*1e6);
+    numBlobs = numBlobs/prod(size(cropAnalysis)/p.Results.pxmm);
+    if p.Results.area
+        fprintf(2,'# of cells/%gmm^2 %d\n',p.Results.area,round(numBlobs*p.Results.area));
+    else
+        fprintf(2,'# of cells/mm^2 %d\n',round(numBlobs));
+    end
+else
+    fprintf(2,'Cell area %f+-%f pixels^2\n',mean(area),std(area));
+end

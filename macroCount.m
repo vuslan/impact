@@ -9,6 +9,9 @@ function [numBlobs, Centroid] = macroCount(filename, varargin)
 % pxmm : pixels per mm
 % area : Compute the number of cells for this area in mm^2
 % white : Removes white areas using this threhold and the channels not used for analysis, 0-255, default is 0 
+% wchans: The channels used for white thresholding, 0-Using default
+% channels which are the channels except the channel specified by channel
+% input, otherwise any compination of rgb
 % border : Crop from borders by this amount of pixels, scalar, [Horizontal
 % Vertical] or [left top right bottom]
 % Examples:
@@ -33,6 +36,7 @@ validChannel = @(x) (ischar(x) || isnumeric(x));
 validScale = @(x) isnumeric(x) && isscalar(x) && (x > 0);
 validWhite = @(x) isnumeric(x) && isscalar(x) && (x > 0) && (x < 256);
 validBorder = @(x) isnumeric(x) && (isscalar(x) || numel(x) == 2 || numel(x) == 4);
+validBlob = @(x) isnumeric(x) && numel(x) < 3;
 
 addRequired(p,'filename', validChannel);      % Filename to be read
 addParameter(p,'channel', 'b', validChannel); % Choose channel
@@ -42,8 +46,15 @@ addParameter(p,'norm',0,validScale); % 1 if rect is in normalized units
 addParameter(p,'pxmm',0,validScale); % Pixels per mm
 addParameter(p,'area',0,validScale); % Area in mm^2
 addParameter(p,'white',0,validWhite);   % Removes white labels if any
+addParameter(p,'wchans',0,validChannel);   % Removes white using this channels
 addParameter(p,'border',0,validBorder); % Border crop
+addParameter(p,'areablob',[4 300],validBlob); % Blob area min-max
 parse(p,filename,varargin{:});
+areablob = p.Results.areablob;
+if numel(p.Results.areablob) == 1
+    areablob = [p.Results.areablob 300];
+end
+areablob = [min(areablob) max(areablob)];
 
 orig = imread(p.Results.filename);
 if isempty(p.Results.rect)
@@ -82,14 +93,27 @@ if numel(p.Results.border) > 1 || p.Results.border(1)
             origCrop = origCrop(1+p.Results.border(2):end-p.Results.border(4),1+p.Results.border(1):end-p.Results.border(3),:);
     end
 end
-if p.Results.white 
-    switch(p.Results.channel)
-        case {1,'r'}
-            indx = find(mean(origCrop(:,:,[2 3]),3)>p.Results.white);
-        case {2,'g'}
-            indx = find(mean(origCrop(:,:,[1 3]),3)>p.Results.white);
-        case {3,'b'}
-            indx = find(mean(origCrop(:,:,[1 2]),3)>p.Results.white);
+if p.Results.white
+    if isnumeric(p.Results.wchans)
+        if ~p.Results.wchans(1) 
+            switch(p.Results.channel)
+                case {1,'r'}
+                    indx = find(mean(origCrop(:,:,[2 3]),3)>p.Results.white);
+                case {2,'g'}
+                    indx = find(mean(origCrop(:,:,[1 3]),3)>p.Results.white);
+                case {3,'b'}
+                    indx = find(mean(origCrop(:,:,[1 2]),3)>p.Results.white);
+            end
+        else
+            indx = find(mean(origCrop(:,:,p.Results.wchans),3)>p.Results.white);
+        end
+    else
+        [~,indx] = intersect('rgba',p.Results.wchans);
+        if any(indx == 4)
+            indx = find(mean(origCrop,3)>p.Results.white);
+        else
+            indx = find(mean(origCrop(:,:,indx),3)>p.Results.white);
+        end
     end
     cropAnalysis(indx) = 0;
 end
@@ -105,8 +129,8 @@ hblob = vision.BlobAnalysis( ...
     'EquivalentDiameterSquaredOutputPort',true,...
     'ExtentOutputPort',true,...
     'PerimeterOutputPort',true,...
-    'MinimumBlobArea', 4, ...
-    'MaximumBlobArea', 300, ...
+    'MinimumBlobArea', areablob(1), ...
+    'MaximumBlobArea', areablob(2), ...
     'ExcludeBorderBlobs',false,...
     'MaximumCount', 1500);
 %% Stream Processing Loop
@@ -143,7 +167,7 @@ figure
 % image_out = origCrop;
 % image_out = insertShape(image_out,"rectangle",bbox,"Color","red");
 imshow(origCrop)
-text(Centroid(:,1),Centroid(:,2),num2str((1:size(Centroid,1))'),'Color', 'yellow')
+text(Centroid(:,1),Centroid(:,2),num2str((1:size(Centroid,1))'),'Color', 'yellow','FontSize',12,'FontWeight','bold')
 title([chanName '-' replace(p.Results.filename,'_','\_')])
 hold on
 bbox = double(bbox);

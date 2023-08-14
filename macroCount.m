@@ -34,6 +34,7 @@ p = inputParser;
 validRect = @(x) isnumeric(x) && numel(x) == 4;
 validChannel = @(x) (ischar(x) || isnumeric(x));
 validScale = @(x) isnumeric(x) && isscalar(x) && (x > 0);
+validAngle = @(x) isnumeric(x) && isscalar(x);
 validWhite = @(x) isnumeric(x) && isscalar(x) && (x > 0) && (x < 256);
 validBorder = @(x) isnumeric(x) && (isscalar(x) || numel(x) == 2 || numel(x) == 4);
 validBlob = @(x) isnumeric(x) && numel(x) < 3;
@@ -49,6 +50,9 @@ addParameter(p,'white',0,validWhite);   % Removes white labels if any
 addParameter(p,'wchans',0,validChannel);   % Removes white using this channels
 addParameter(p,'border',0,validBorder); % Border crop
 addParameter(p,'areablob',[4 300],validBlob); % Blob area min-max
+addParameter(p,'maskRect',[],validRect);
+addParameter(p,'maskAngle',[],validAngle);
+
 parse(p,filename,varargin{:});
 areablob = p.Results.areablob;
 if numel(p.Results.areablob) == 1
@@ -57,6 +61,11 @@ end
 areablob = [min(areablob) max(areablob)];
 
 orig = imread(p.Results.filename);
+if ~isempty(p.Results.maskRect)
+    pg = prod(size(orig,[1 2]));
+    msk = find(~immask(orig,p.Results.maskRect,p.Results.maskAngle))+[0 pg 2*pg];
+    orig(msk) = 0;
+end
 if isempty(p.Results.rect)
     origCrop = orig;
 else
@@ -70,15 +79,18 @@ cropRed = medfilt2(double(origCrop(:,:,1))/255);
 cropGreen = medfilt2(double(origCrop(:,:,2))/255);
 cropBlue = medfilt2(double(origCrop(:,:,3))/255);
 switch(p.Results.channel)
-    case {1,'r'}
+    case {4,'r'}
         cropAnalysis = cropRed;
         chanName = 'origRed';
     case {2,'g'}
         cropAnalysis = cropGreen;
         chanName = 'origGreen';
-    case {3,'b'}
+    case {1,'b'}
         cropAnalysis = cropBlue;
         chanName = 'origBlue';
+    case {3,'gb','bg'}
+        cropAnalysis = (cropBlue + cropGreen)/2;
+        chanName = 'origGreenBlue';
 end
 if numel(p.Results.border) > 1 || p.Results.border(1)
     switch numel(p.Results.border)
@@ -97,12 +109,14 @@ if p.Results.white
     if isnumeric(p.Results.wchans)
         if ~p.Results.wchans(1) 
             switch(p.Results.channel)
-                case {1,'r'}
+                case {4,'r'}
                     indx = find(mean(origCrop(:,:,[2 3]),3)>p.Results.white);
                 case {2,'g'}
                     indx = find(mean(origCrop(:,:,[1 3]),3)>p.Results.white);
-                case {3,'b'}
+                case {1,'b'}
                     indx = find(mean(origCrop(:,:,[1 2]),3)>p.Results.white);
+                case {3,'gb','bg'}
+                    indx = find(mean(origCrop(:,:,1),3)>p.Results.white);
             end
         else
             indx = find(mean(origCrop(:,:,p.Results.wchans),3)>p.Results.white);
@@ -202,7 +216,13 @@ image_out = insertMarker(image_out, Centroid, '+', 'Color', 'green');
 
 y2 = insertMarker(double(y2), Centroid, '+', 'Color', 'green','size',2);
 y3 = insertMarker(double(y3), Centroid, '+', 'Color', 'green','size',2);
-subplot(2,2,1); imshow(image_out); title(replace(p.Results.filename,'_','\_'));
+filename = p.Results.filename;
+if any(filename == '\')
+    fni = find(filename=='\');
+    filename = filename(fni(end)+1:end);
+    filename = replace(filename,'_','\_');
+end
+subplot(2,2,1); imshow(image_out); title(filename);
 subplot(2,2,2); imshow(y1); title([chanName '-Enhanced']);
 subplot(2,2,3); imshow(y2); title([chanName '-Blob']);
 subplot(2,2,4); imshow(y3); title(sprintf([chanName '-Threshold:%f Scale:%f'], th, p.Results.scale));

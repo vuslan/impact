@@ -2,7 +2,7 @@ function [numBlobs, Centroid] = macroCount(filename, varargin)
 % Using Function:
 % macroCount(filename, property value pair);
 % Properties : 
-% channel : r,g,b default blue
+% channel : r,g,b, gb default blue
 % rect : [Row Column Height Width], default all image.
 % norm : The rect units are normalized, 0 : pixels, 1: normalized
 % scale : 0.01 - 1, default 0.7
@@ -41,7 +41,7 @@ validBlob = @(x) isnumeric(x) && numel(x) < 3;
 
 addRequired(p,'filename', validChannel);      % Filename to be read
 addParameter(p,'channel', 'b', validChannel); % Choose channel
-addParameter(p,'rect',[],validRect);    % Apply to a specific rectangle
+addParameter(p,'rect',[],validRect);    % Apply to a specific rectangle, crops image
 addParameter(p,'scale',0.7,validScale); % Scales OTSU's threshold
 addParameter(p,'norm',0,validScale); % 1 if rect is in normalized units
 addParameter(p,'pxmm',0,validScale); % Pixels per mm
@@ -50,8 +50,8 @@ addParameter(p,'white',0,validWhite);   % Removes white labels if any
 addParameter(p,'wchans',0,validChannel);   % Removes white using this channels
 addParameter(p,'border',0,validBorder); % Border crop
 addParameter(p,'areablob',[4 300],validBlob); % Blob area min-max
-addParameter(p,'maskRect',[],validRect);
-addParameter(p,'maskAngle',[],validAngle);
+addParameter(p,'maskRect',[],validRect);      % Clears all image data external to this rectangle 
+addParameter(p,'maskAngle',[],validAngle);    % The angle that maskRect should be rotated in clockwise direction  
 
 parse(p,filename,varargin{:});
 areablob = p.Results.areablob;
@@ -63,7 +63,7 @@ areablob = [min(areablob) max(areablob)];
 orig = imread(p.Results.filename);
 if ~isempty(p.Results.maskRect)
     pg = prod(size(orig,[1 2]));
-    msk = find(~immask(orig,p.Results.maskRect,p.Results.maskAngle))+[0 pg 2*pg];
+    msk = find(~immask(orig,p.Results.maskRect,p.Results.maskAngle))+[0 pg 2*pg]; % [0 pg 2*pg] -> We need to mask all three channels.
     orig(msk) = 0;
 end
 if isempty(p.Results.rect)
@@ -182,7 +182,13 @@ figure
 % image_out = insertShape(image_out,"rectangle",bbox,"Color","red");
 imshow(origCrop)
 text(Centroid(:,1),Centroid(:,2),num2str((1:size(Centroid,1))'),'Color', 'yellow','FontSize',12,'FontWeight','bold')
-title([chanName '-' replace(p.Results.filename,'_','\_')])
+filename = p.Results.filename;
+if any(filename == '\')
+    fni = find(filename=='\');
+    filename = filename(fni(end)+1:end);
+    filename = replace(filename,'_','\_');
+end
+title([chanName '-' filename],'Interpreter','none')
 hold on
 bbox = double(bbox);
 plot([bbox(:,1) bbox(:,1)+bbox(:,[3 3]) bbox(:,[1 1])]',[bbox(:,[2 2]) bbox(:,2)+bbox(:,[4 4]) bbox(:,2)]','Color','r','LineWidth',2);
@@ -216,38 +222,36 @@ image_out = insertMarker(image_out, Centroid, '+', 'Color', 'green');
 
 y2 = insertMarker(double(y2), Centroid, '+', 'Color', 'green','size',2);
 y3 = insertMarker(double(y3), Centroid, '+', 'Color', 'green','size',2);
-filename = p.Results.filename;
-if any(filename == '\')
-    fni = find(filename=='\');
-    filename = filename(fni(end)+1:end);
-    filename = replace(filename,'_','\_');
-end
 subplot(2,2,1); imshow(image_out); title(filename);
 subplot(2,2,2); imshow(y1); title([chanName '-Enhanced']);
 subplot(2,2,3); imshow(y2); title([chanName '-Blob']);
 subplot(2,2,4); imshow(y3); title(sprintf([chanName '-Threshold:%f Scale:%f'], th, p.Results.scale));
-fprintf(2,'# of cells %d\n',numBlobs);
-fprintf(2,'Ecc %f+-%f\n',mean(eccentricity),std(eccentricity));
-fprintf(2,'Extent %f+-%f\n',mean(extent),std(extent));
+fprintf(2,'# of cells\t%d\n',numBlobs);
+fprintf(2,'Ecc\t%f+-%f\n',mean(eccentricity),std(eccentricity));
+fprintf(2,'Extent\t%f+-%f\n',mean(extent),std(extent));
 if p.Results.pxmm
     pxum = p.Results.pxmm/1e3;
-    fprintf(2,'Cell area %f+-%f um^2\n',mean(area)/(pxum^2),std(area)/(pxum^2));
+    fprintf(2,'Cell area\t%f+-%f\tum^2\n',mean(area)/(pxum^2),std(area)/(pxum^2));
+    if isempty(p.Results.maskRect)
     numBlobs = numBlobs/prod(size(cropAnalysis)/p.Results.pxmm);
-    if p.Results.area
-        fprintf(2,'# of cells/%gmm^2 %d\n',p.Results.area,round(numBlobs*p.Results.area));
     else
-        fprintf(2,'# of cells/mm^2 %d\n',round(numBlobs));
+        numBlobs = numBlobs/prod(p.Results.maskRect([3 4])/p.Results.pxmm);
     end
-    fprintf(2,'MajorAxis %f+-%f um\n',mean(majoraxis)/pxum,std(majoraxis)/pxum);
-    fprintf(2,'MinorAxis %f+-%f um\n',mean(minoraxis)/pxum,std(minoraxis)/pxum);
-    fprintf(2,'Equivalent diameter %f+-%f\n',mean(sqrt(eqdiasq))/pxum,std(sqrt(eqdiasq))/pxum);
-    fprintf(2,'Perimeter %f+-%f um\n',mean(perimeter)/pxum,std(perimeter)/pxum);
+    if p.Results.area
+        fprintf(2,'# of cells/%gmm^2\t%d\n',p.Results.area,round(numBlobs*p.Results.area));
+    else
+        fprintf(2,'# of cells/mm^2\t%d\n',round(numBlobs));
+    end
+    fprintf(2,'MajorAxis\t%f+-%f\tum\n',mean(majoraxis)/pxum,std(majoraxis)/pxum);
+    fprintf(2,'MinorAxis\t%f+-%f\tum\n',mean(minoraxis)/pxum,std(minoraxis)/pxum);
+    fprintf(2,'Equivalent diameter\t%f+-%f\tum\n',mean(sqrt(eqdiasq))/pxum,std(sqrt(eqdiasq))/pxum);
+    fprintf(2,'Perimeter\t%f+-%f\tum\n',mean(perimeter)/pxum,std(perimeter)/pxum);
 else
-    fprintf(2,'Cell area %f+-%f pixels^2\n',mean(area),std(area));
-    fprintf(2,'MajorAxis %f+-%f\n',mean(majoraxis),std(majoraxis));
-    fprintf(2,'MinorAxis %f+-%f\n',mean(minoraxis),std(minoraxis));
-    fprintf(2,'Equivalent diameter %f+-%f\n',mean(sqrt(eqdiasq)),std(sqrt(eqdiasq)));
-    fprintf(2,'Perimeter %f+-%f um\n',mean(perimeter),std(perimeter));
+    fprintf(2,'Cell area\t%f+-%f\tpixels^2\n',mean(area),std(area));
+    fprintf(2,'MajorAxis\t%f+-%f\tpixels\n',mean(majoraxis),std(majoraxis));
+    fprintf(2,'MinorAxis\t%f+-%f\tpixels\n',mean(minoraxis),std(minoraxis));
+    fprintf(2,'Equivalent diameter\t%f+-%f\tpixels\n',mean(sqrt(eqdiasq)),std(sqrt(eqdiasq)));
+    fprintf(2,'Perimeter\t%f+-%f\tpixels\n',mean(perimeter),std(perimeter));
 end
 figure
 imshow(image_out);
